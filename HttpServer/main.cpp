@@ -53,15 +53,13 @@ void main()
 	}
 
 	GetCurrentDirectory(512, HtmlDir);
-
 	strcat(HtmlDir, "\\HTML\\");
-
 	strcat(HtmlDir, FileName);
+
 	//启动一个接受线程
 	HANDLE hAcceptThread = CreateThread(NULL, 0, AcceptThread, NULL, 0, NULL);
 
-	//在这里我们使用事件模型来实现我们的Web服务器
-	//创建一个事件
+	// 使用事件模型来实现我们的Web服务器
 	WaitForSingleObject(hAcceptThread, INFINITE);
 }
 
@@ -142,14 +140,14 @@ void ResponseClient(char *msg, int sClient)
 {
 	DWORD NumberOfBytesSent = 0;
 	DWORD dwBytesSent = 0;
-	WSABUF Buffers;
+	WSABUF buffers;
 
 	int ret = 0;
 	do
 	{
-		Buffers.len = (strlen(msg) - dwBytesSent) >= SENDBLOCK ? SENDBLOCK : strlen(msg) - dwBytesSent;
-		Buffers.buf = (char*)((DWORD)msg + dwBytesSent);
-		ret = WSASend(sClient, &Buffers, 1, &NumberOfBytesSent, 0, 0, NULL);
+		buffers.len = (strlen(msg) - dwBytesSent) >= SENDBLOCK ? SENDBLOCK : strlen(msg) - dwBytesSent;
+		buffers.buf = (char*)((DWORD)msg + dwBytesSent);
+		ret = WSASend(sClient, &buffers, 1, &NumberOfBytesSent, 0, 0, NULL);
 		if (SOCKET_ERROR != ret)
 			dwBytesSent += NumberOfBytesSent;
 	} while ((dwBytesSent < strlen(msg)) && SOCKET_ERROR != ret);
@@ -246,28 +244,31 @@ DWORD WINAPI ClientThread(LPVOID lpParam)
 	buffers.len = MAX_BUFFER;
 
 	WSAEVENT Event = WSACreateEvent();
-	int ret = WSAEventSelect(sClient, Event, FD_READ | FD_WRITE | FD_CLOSE);
+	int ret = WSAEventSelect(sClient, Event, FD_READ | FD_CLOSE);
 
 	while (1)
 	{
-		DWORD dwIndex = WSAWaitForMultipleEvents(1, &Event, FALSE, WSA_INFINITE, FALSE);
 		ret = WSAEnumNetworkEvents(sClient, Event, &NetWorkEvent);
 		if (NetWorkEvent.lNetworkEvents & FD_READ)
 		{
 			ret = WSARecv(sClient, &buffers, dwBufferCount, &NumberOfBytesRecvd, &Flags, NULL, NULL);
 			if (ret == 0)
 			{
-				printf("%s", szBuffer);
-
 				// 检测是否得到的完整请求
 				memcpy(szRequest, szBuffer, NumberOfBytesRecvd);
 				if (IoComplete(szRequest) && ParseRequest(szRequest, szResponse, bKeepAlive)) // 校验数据包
 				{
 					ResponseClient(szResponse, sClient);// 发送响应到客户端
-					closesocket(sClient);
-					break;
 				}
 			}
+
+			closesocket(sClient);
+			break;
+		}
+		else if (NetWorkEvent.lNetworkEvents & FD_CLOSE)
+		{
+			closesocket(sClient);
+			break;
 		}
 	}
 
@@ -373,86 +374,40 @@ void GetRqstFileName(char *rqstHeader, char *fileName)
 	memcpy(fileName, str1, str2 - str1);
 }
 
+// 响应客户端body的内容
+void AddTestContent(char *resBody)
+{
+	static int i = 0;
+	sprintf(resBody, "hello world %d\n", i);
+	i++;
+}
+
 //分析数据包
 bool ParseRequest(char* szRequest, char* szResponse, BOOL &bKeepAlive)
 {
-	char *p = szRequest;
-	char* pTemp = strstr(p, " "); //判断字符串str2是否是str1的子串。如果是，则该函数返回str2在str1中首次出现的地址；否则，返回NULL。
-
 	char fileName[20] = { 0 };
 	GetRqstFileName(szRequest, fileName);
 	if (strcmp(fileName, "/") != 0)
 		return false;
 
-	// 分析链接类型
-	pTemp = strstr(szRequest, "\nConnection: Keep-Alive");  //协议版本
-	if (p>0)
-	{
-		bKeepAlive = TRUE;
-	}
-	else  //这里的设置是为了Proxy程序的运行
-	{
-		bKeepAlive = TRUE;
-	}
 	//定义一个回显头
 	char pResponseHeader[512] = { 0 };
 	char szStatusCode[20] = { 0 };
 	char szContentType[20] = { 0 };
 	strcpy(szStatusCode, "200 OK");
 	strcpy(szContentType, "text/html");
-	//char szDT[128];
-	//struct tm *newtime;
-	//long ltime;
-	//time(<ime);
-	//newtime = gmtime(<ime);
-	//llstrftime(szDT, 128, "%a, %d %b %Y %H:%M:%S GMT", newtime);
 
-	char szDT[128] = "Sat, 11 Mar 2017 21:49 : 51 GMT";
-	//读取文件
-	//定义一个文件流指针
-	FILE* fp = fopen(HtmlDir, "rb");
-	fpos_t lengthActual = 0;
-	int length = 0;
-	char* BufferTemp = NULL;
+	char date[128] = "Sat, 11 Mar 2017 21:49 : 51 GMT";
 
-	static int i = 0;
 	char resBody[100] = { 0 };
-	sprintf(resBody, "hello world %d\n", i);
-	i++;
+	AddTestContent(resBody);
 
-	if (fp != NULL)
-	{
-		// 获得文件大小
-		fseek(fp, 0, SEEK_END);
-		fgetpos(fp, &lengthActual);
-		fseek(fp, 0, SEEK_SET);
-		//计算出文件的大小后我们进行分配内存
-		if (lengthActual != 0){
-			BufferTemp = (char*)malloc(sizeof(char)*((int)lengthActual));
-			if (BufferTemp != NULL)
-			{
-				length = fread(BufferTemp, 1, (int)lengthActual, fp);
-			}
-		}
-		fclose(fp);
-		// 返回响应
-		sprintf(pResponseHeader, "HTTP/1.0 %s\r\nDate: %s\r\nServer: %s\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nConnection: %s\r\nContent-Type: %s\r\n\r\n",
-			szStatusCode, szDT, SERVERNAME, length, bKeepAlive ? "Keep-Alive" : "close", szContentType);   //响应报文
-	}
-	//如果我们的文件没有找到我们将引导用户到另外的错误页面
-	else
-	{
-		sprintf(pResponseHeader, "HTTP/1.0 %s\r\nDate: %s\r\nServer: %s\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nConnection: %s\r\nContent-Type: %s\r\n\r\n",
-			szStatusCode, szDT, SERVERNAME, strlen(resBody), "close", szContentType);   //响应报文
-	}
+	sprintf(pResponseHeader, "HTTP/1.0 %s\r\nDate: %s\r\nServer: %s\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nConnection: %s\r\nContent-Type: %s\r\n\r\n",
+		szStatusCode, date, SERVERNAME, strlen(resBody), "close", szContentType);   //响应报文
 
 	strcpy(szResponse, pResponseHeader);
 	strcat(szResponse, resBody);
 	printf("%s", szResponse);
 
-	if (BufferTemp != NULL){
-		strcat(szResponse, BufferTemp);
-		free(BufferTemp);
-	}
 	return true;
 }
