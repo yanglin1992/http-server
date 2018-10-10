@@ -13,6 +13,7 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{7995C0FE-4BF3-45C6-89E3-202C3920C713}</ProjectGuid>
     <RootNamespace>HttpServer4</RootNamespace>
+    <ProjectName>HttpServer</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
