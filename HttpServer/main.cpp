@@ -354,15 +354,19 @@ bool AddThreadList(HANDLE hThread, DWORD ThreadID)
 //校验数据包
 bool IoComplete(char* szRequest)
 {
-	char* pTemp = NULL;   //定义临时空指针
-	int nLen = strlen(szRequest); //请求数据包长度
-	pTemp = szRequest;
-	pTemp = pTemp + nLen - 4; //定位指针
-	if (strcmp(pTemp, "\r\n\r\n") == 0)   //校验请求头部行末尾的回车控制符和换行符以及空行
-	{
-		return true;
-	}
-	return false;
+	char *str1 = strstr(szRequest, "\r\n\r\n");
+	if (str1 == NULL)
+		return false;
+	
+	//char* pTemp = NULL;   //定义临时空指针
+	//int nLen = strlen(szRequest); //请求数据包长度
+	//pTemp = szRequest;
+	//pTemp = pTemp + nLen - 4; //定位指针
+	//if (strcmp(pTemp, "\r\n\r\n") == 0)   //校验请求头部行末尾的回车控制符和换行符以及空行
+	//{
+	//	return true;
+	//}
+	return true;
 }
 
 // 从请求头中获取请求资源的文件名
