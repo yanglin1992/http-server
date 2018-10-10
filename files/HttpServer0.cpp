@@ -1,4 +1,4 @@
-#include <winsock2.h>
+#include <Winsock2.h>
 #include <windows.h>
 #include <malloc.h>
 #include <stdio.h>
@@ -68,7 +68,7 @@ void main()
 DWORD WINAPI AcceptThread(LPVOID lpParam)   //接收线程
 {
 	//创建一个监听套接字
-	SOCKET sListen = WSASocketW(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED); //使用事件重叠的套接字
+	SOCKET sListen = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED); //使用事件重叠的套接字
 	if (sListen == INVALID_SOCKET)
 	{
 		printf("Create Listen Error\n");
@@ -78,7 +78,7 @@ DWORD WINAPI AcceptThread(LPVOID lpParam)   //接收线程
 	sockaddr_in LocalAddr;
 	LocalAddr.sin_addr.S_un.S_addr = INADDR_ANY;
 	LocalAddr.sin_family = AF_INET;
-	LocalAddr.sin_port = htons(2000);
+	LocalAddr.sin_port = htons(uPort);
 	//绑定套接字 80端口
 	int Ret = bind(sListen, (sockaddr*)&LocalAddr, sizeof(LocalAddr));
 	if (Ret == SOCKET_ERROR)
@@ -138,24 +138,7 @@ DWORD WINAPI AcceptThread(LPVOID lpParam)   //接收线程
 	return 0;
 }
 
-void ResponseClient(char *msg, int sClient)
-{
-	DWORD NumberOfBytesSent = 0;
-	DWORD dwBytesSent = 0;
-	WSABUF Buffers;
-
-	int ret = 0;
-	do
-	{
-		Buffers.len = (strlen(msg) - dwBytesSent) >= SENDBLOCK ? SENDBLOCK : strlen(msg) - dwBytesSent;
-		Buffers.buf = (char*)((DWORD)msg + dwBytesSent);
-		ret = WSASend(sClient, &Buffers, 1, &NumberOfBytesSent, 0, 0, NULL);
-		if (SOCKET_ERROR != ret)
-			dwBytesSent += NumberOfBytesSent;
-	} while ((dwBytesSent < strlen(msg)) && SOCKET_ERROR != ret);
-}
-
-DWORD WINAPI ClientThread0(LPVOID lpParam)
+DWORD WINAPI ClientThread(LPVOID lpParam)
 {
 	//我们将每个用户的信息以参数的形式传入到该线程
 	pNode pTemp = (pNode)lpParam;
@@ -191,14 +174,11 @@ DWORD WINAPI ClientThread0(LPVOID lpParam)
 			DWORD NumberOfBytesRecvd;
 			WSABUF Buffers;
 			DWORD dwBufferCount = 1;
-			char szBuffer[MAX_BUFFER]= {0};
+			char szBuffer[MAX_BUFFER];
 			DWORD Flags = 0;
 			Buffers.buf = szBuffer;
 			Buffers.len = MAX_BUFFER;
 			Ret = WSARecv(sClient, &Buffers, dwBufferCount, &NumberOfBytesRecvd, &Flags, NULL, NULL);
-
-			printf("%s", szBuffer);
-
 			//我们在这里要检测是否得到的完整请求
 			memcpy(szRequest, szBuffer, NumberOfBytesRecvd);
 			if (!IoComplete(szRequest)) //校验数据包
@@ -210,67 +190,31 @@ DWORD WINAPI ClientThread0(LPVOID lpParam)
 				//我在这里就进行了简单的处理
 				continue;
 			}
-			// 发送响应到客户端
-			ResponseClient(szResponse, sClient);
-
-			closesocket(sClient);
-			break;
+			DWORD NumberOfBytesSent = 0;
+			DWORD dwBytesSent = 0;
+			//发送响应到客户端
+			do
+			{
+				Buffers.len = (strlen(szResponse) - dwBytesSent) >= SENDBLOCK ? SENDBLOCK : strlen(szResponse) - dwBytesSent;
+				Buffers.buf = (char*)((DWORD)szResponse + dwBytesSent);
+				Ret = WSASend(
+					sClient,
+					&Buffers,
+					1,
+					&NumberOfBytesSent,
+					0,
+					0,
+					NULL);
+				if (SOCKET_ERROR != Ret)
+					dwBytesSent += NumberOfBytesSent;
+			} while ((dwBytesSent < strlen(szResponse)) && SOCKET_ERROR != Ret);
 		}
 
 		if (NetWorkEvent.lNetworkEvents & FD_CLOSE)
 		{
 			//在这里我没有处理，我们要将内存进行释放否则内存泄露
 		}
-
 	}
-	return 0;
-}
-
-DWORD WINAPI ClientThread(LPVOID lpParam)
-{
-	// 我们将每个用户的信息以参数的形式传入到该线程
-	pNode pTemp = (pNode)lpParam;
-	SOCKET sClient = pTemp->s;
-	char szRequest[1024] = { 0 }; //请求报文
-	char szResponse[1024] = { 0 }; //响应报文
-	BOOL bKeepAlive = FALSE; //是否持续连接
-
-	DWORD NumberOfBytesRecvd;
-	WSANETWORKEVENTS NetWorkEvent;
-
-	WSABUF buffers;// 存放客户端传过来的数据
-	DWORD dwBufferCount = 1;
-	char szBuffer[MAX_BUFFER] = { 0 };
-	DWORD Flags = 0;
-	buffers.buf = szBuffer;
-	buffers.len = MAX_BUFFER;
-
-	WSAEVENT Event = WSACreateEvent();
-	int ret = WSAEventSelect(sClient, Event, FD_READ | FD_WRITE | FD_CLOSE);
-
-	while (1)
-	{
-		DWORD dwIndex = WSAWaitForMultipleEvents(1, &Event, FALSE, WSA_INFINITE, FALSE);
-		ret = WSAEnumNetworkEvents(sClient, Event, &NetWorkEvent);
-		if (NetWorkEvent.lNetworkEvents & FD_READ)
-		{
-			ret = WSARecv(sClient, &buffers, dwBufferCount, &NumberOfBytesRecvd, &Flags, NULL, NULL);
-			if (ret == 0)
-			{
-				printf("%s", szBuffer);
-
-				// 检测是否得到的完整请求
-				memcpy(szRequest, szBuffer, NumberOfBytesRecvd);
-				if (IoComplete(szRequest) && ParseRequest(szRequest, szResponse, bKeepAlive)) // 校验数据包
-				{
-					ResponseClient(szResponse, sClient);// 发送响应到客户端
-					closesocket(sClient);
-					break;
-				}
-			}
-		}
-	}
-
 	return 0;
 }
 
@@ -364,28 +308,41 @@ bool IoComplete(char* szRequest)
 	return false;
 }
 
-// 从请求头中获取请求资源的文件名
-void GetRqstFileName(char *rqstHeader, char *fileName)
-{
-	char *str1 = strstr(rqstHeader, " ");
-	str1++;
-	char *str2 = strstr(str1, " ");
-	memcpy(fileName, str1, str2 - str1);
-}
-
 //分析数据包
 bool ParseRequest(char* szRequest, char* szResponse, BOOL &bKeepAlive)
 {
-	char *p = szRequest;
+	char* p = NULL;
+	p = szRequest;
+	int n = 0;
 	char* pTemp = strstr(p, " "); //判断字符串str2是否是str1的子串。如果是，则该函数返回str2在str1中首次出现的地址；否则，返回NULL。
-
-	char fileName[20] = { 0 };
-	GetRqstFileName(szRequest, fileName);
-	if (strcmp(fileName, "/") != 0)
+	n = pTemp - p;    //指针长度
+	// pTemp = pTemp + n - 1; //将我们的指针下移
+	//定义一个临时的缓冲区来存放我们
+	char szMode[10] = { 0 };
+	char szFileName[10] = { 0 };
+	memcpy(szMode, p, n);   //将请求方法拷贝到szMode数组中
+	if (strcmp(szMode, "GET") == 0)  //一定要将Get写成大写
+	{
+		//获取文件名
+		pTemp = strstr(pTemp, " ");
+		pTemp = pTemp + 1;   //只有调试的时候才能发现这里的秘密
+		memcpy(szFileName, pTemp, 1);
+		if (strcmp(szFileName, "/") == 0)
+		{
+			strcpy(szFileName, FileName);
+		}
+		else
+		{
+			return false;
+		}
+	}
+	else
+	{
 		return false;
-
+	}
 	// 分析链接类型
 	pTemp = strstr(szRequest, "\nConnection: Keep-Alive");  //协议版本
+	n = pTemp - p;
 	if (p>0)
 	{
 		bKeepAlive = TRUE;
@@ -400,26 +357,18 @@ bool ParseRequest(char* szRequest, char* szResponse, BOOL &bKeepAlive)
 	char szContentType[20] = { 0 };
 	strcpy(szStatusCode, "200 OK");
 	strcpy(szContentType, "text/html");
-	//char szDT[128];
-	//struct tm *newtime;
-	//long ltime;
-	//time(<ime);
-	//newtime = gmtime(<ime);
-	//llstrftime(szDT, 128, "%a, %d %b %Y %H:%M:%S GMT", newtime);
-
-	char szDT[128] = "Sat, 11 Mar 2017 21:49 : 51 GMT";
+	char szDT[128];
+	struct tm *newtime;
+	long ltime;
+	time(<ime);
+	newtime = gmtime(<ime);
+	strftime(szDT, 128, "%a, %d %b %Y %H:%M:%S GMT", newtime);
 	//读取文件
 	//定义一个文件流指针
 	FILE* fp = fopen(HtmlDir, "rb");
 	fpos_t lengthActual = 0;
 	int length = 0;
 	char* BufferTemp = NULL;
-
-	static int i = 0;
-	char resBody[100] = { 0 };
-	sprintf(resBody, "hello world %d\n", i);
-	i++;
-
 	if (fp != NULL)
 	{
 		// 获得文件大小
@@ -427,13 +376,8 @@ bool ParseRequest(char* szRequest, char* szResponse, BOOL &bKeepAlive)
 		fgetpos(fp, &lengthActual);
 		fseek(fp, 0, SEEK_SET);
 		//计算出文件的大小后我们进行分配内存
-		if (lengthActual != 0){
-			BufferTemp = (char*)malloc(sizeof(char)*((int)lengthActual));
-			if (BufferTemp != NULL)
-			{
-				length = fread(BufferTemp, 1, (int)lengthActual, fp);
-			}
-		}
+		BufferTemp = (char*)malloc(sizeof(char)*((int)lengthActual));
+		length = fread(BufferTemp, 1, (int)lengthActual, fp);
 		fclose(fp);
 		// 返回响应
 		sprintf(pResponseHeader, "HTTP/1.0 %s\r\nDate: %s\r\nServer: %s\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nConnection: %s\r\nContent-Type: %s\r\n\r\n",
@@ -442,17 +386,10 @@ bool ParseRequest(char* szRequest, char* szResponse, BOOL &bKeepAlive)
 	//如果我们的文件没有找到我们将引导用户到另外的错误页面
 	else
 	{
-		sprintf(pResponseHeader, "HTTP/1.0 %s\r\nDate: %s\r\nServer: %s\r\nAccept-Ranges: bytes\r\nContent-Length: %d\r\nConnection: %s\r\nContent-Type: %s\r\n\r\n",
-			szStatusCode, szDT, SERVERNAME, strlen(resBody), "close", szContentType);   //响应报文
 	}
-
 	strcpy(szResponse, pResponseHeader);
-	strcat(szResponse, resBody);
-	printf("%s", szResponse);
-
-	if (BufferTemp != NULL){
-		strcat(szResponse, BufferTemp);
-		free(BufferTemp);
-	}
+	strcat(szResponse, BufferTemp);
+	free(BufferTemp);
+	BufferTemp = NULL;
 	return true;
 }
